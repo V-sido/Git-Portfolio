@@ -1,0 +1,80 @@
+WITH RankedShipments AS (
+   SELECT
+       cm.shipment_id,
+       cm.export_customs_handled_by,
+       cm.export_declaration_count,
+       cm.import_customs_handled_by,
+       cm.import_declaration_count,
+       cm.user_detail__email,
+       cm.user_detail__name,
+       gs.customer_id,
+       gs.customer_name,
+       gs.state,
+       gs.pol_name,
+       gs.pod_name,
+       gs.total_containers,
+       gs.trade_class_code,
+       gs.transport_type,
+       gs.transport_mode,
+       DATE_SUB(gs.service_completion_date, INTERVAL 1 DAY) as                                    adjusted_service_completion_date,
+       ts.cdd_initial,
+       ts.cdd_estimated,
+       ts.cdd_actual,
+       EXTRACT(WEEK FROM DATE(ts.cdd_actual)) AS CW,
+       EXTRACT(YEAR FROM DATE(ts.cdd_actual)) AS Year,
+       ROW_NUMBER() OVER (PARTITION BY cm.shipment_id ORDER BY (SELECT NULL)) AS RowNum
+   FROM
+   (
+       SELECT *
+       FROM `data-pipeline-276214.stg__customs_status.customs_metadata_v1`
+       WHERE user_detail__name IN ('Timo Beh', 'Anne Höh', 'Jennifer Schi', 'Christian Neu', 'Tanja Nie')
+       AND shipment_id IS NOT NULL
+   ) cm
+   LEFT JOIN
+   `data-pipeline-276214.gold.gsc_shipments` gs
+   ON
+   cm.shipment_id = gs.shipment_id
+   AND gs.shipment_id IS NOT NULL
+   LEFT JOIN
+   (
+       SELECT
+           shipment_id,
+           FORMAT_DATE('%Y-%m-%d', cdd_initial)   AS cdd_initial,
+           FORMAT_DATE('%Y-%m-%d', cdd_estimated) AS cdd_estimated,
+           FORMAT_DATE('%Y-%m-%d', cdd_actual)    AS cdd_actual
+       FROM data-pipeline-276214.sem__common.timestamps_essentials
+       WHERE cdd_updated_at > '2023-01-01'
+   ) ts
+   ON
+   gs.shipment_id = ts.shipment_id
+)
+SELECT
+  rs.shipment_id,
+   rs.export_customs_handled_by,
+   rs.export_declaration_count,
+   rs.import_customs_handled_by,
+   rs.import_declaration_count,
+   rs.user_detail__email,
+   rs.user_detail__name,
+   rs.customer_id,
+   rs.customer_name,
+   rs.state,
+   rs.pol_name,
+   rs.pod_name,
+   rs.total_containers,
+   rs.trade_class_code,
+   rs.transport_type,
+   rs.transport_mode,
+   rs.adjusted_service_completion_date,
+   rs.cdd_initial,
+   rs.cdd_estimated,
+   rs.cdd_actual,
+   rs.CW,
+   rs.Year,
+   s.hs_codes_count
+FROM RankedShipments rs
+LEFT JOIN
+   `data-pipeline-276214.sem__common.shipments` s
+ON
+   rs.shipment_id = s.shipment_id
+WHERE rs.RowNum = 1;
